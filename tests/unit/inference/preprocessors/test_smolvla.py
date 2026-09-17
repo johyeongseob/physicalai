@@ -192,7 +192,7 @@ class TestResizeSmolVLADtypeAndLayout:
 
     def test_layout_is_required(self) -> None:
         with pytest.raises(TypeError, match="image_layout"):
-            ResizeSmolVLA()
+            ResizeSmolVLA()  # pyrefly: ignore [missing-argument]
 
     @pytest.mark.parametrize("image_layout", ["BCHW", "BHWC"])
     def test_invalid_ndim_raises_before_transpose(self, image_layout: str) -> None:
@@ -208,11 +208,12 @@ class TestResizeSmolVLADtypeAndLayout:
             prep = ResizeSmolVLA(image_layout=layout, image_resolution=(8, 12), num_cameras=3)
             if presentation == "nested":
                 inputs = {IMAGES: {"top": img, "wrist": img.copy()}}
+                # Nested camera inputs are supported at runtime but absent from the input annotation.
+                outputs.append(prep(inputs))  # pyrefly: ignore [bad-argument-type]
             elif presentation == "flat":
-                inputs = {"images.top": img, "images.wrist": img.copy()}
+                outputs.append(prep({"images.top": img, "images.wrist": img.copy()}))
             else:
-                inputs = {IMAGES: img}
-            outputs.append(prep(inputs))
+                outputs.append(prep({IMAGES: img}))
         assert outputs[0][IMAGES].shape == (3, 2, 3, 8, 12)
         np.testing.assert_array_equal(outputs[0][IMAGES], outputs[1][IMAGES])
         np.testing.assert_array_equal(outputs[0][IMAGE_MASKS], outputs[1][IMAGE_MASKS])

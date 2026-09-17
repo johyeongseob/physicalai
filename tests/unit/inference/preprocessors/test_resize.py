@@ -150,7 +150,7 @@ class TestResizePreprocessor:
 
     def test_layout_is_required(self) -> None:
         with pytest.raises(TypeError, match="image_layout"):
-            ResizePreprocessor(image_resolution=(64, 64))
+            ResizePreprocessor(image_resolution=(64, 64))  # pyrefly: ignore [missing-argument]
 
     @pytest.mark.parametrize("mode", [ResizeMode.STRETCH, ResizeMode.LETTERBOX])
     @pytest.mark.parametrize("presentation", ["single", "nested", "flat"])
@@ -166,11 +166,15 @@ class TestResizePreprocessor:
             elif presentation == "flat":
                 result = prep({"images.top": img, "images.wrist": img.copy()})
                 np.testing.assert_array_equal(result["images.top"], result["images.wrist"])
-                outputs.append(result["images.top"])
+                out = result["images.top"]
+                assert isinstance(out, np.ndarray)
+                outputs.append(out)
             else:
-                outputs.append(prep({IMAGES: img})[IMAGES])
+                out = prep({IMAGES: img})[IMAGES]
+                assert isinstance(out, np.ndarray)
+                outputs.append(out)
         assert outputs[0].shape == (2, 3, 8, 12)
-        np.testing.assert_array_equal(*outputs)
+        np.testing.assert_array_equal(outputs[0], outputs[1])
 
     def test_channels_last_uint8_is_normalized(self) -> None:
         prep = ResizePreprocessor(image_layout="BHWC", image_resolution=(32, 32), mode=ResizeMode.STRETCH)
