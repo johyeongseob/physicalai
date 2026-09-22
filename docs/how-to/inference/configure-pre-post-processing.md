@@ -52,6 +52,10 @@ When `image_layout` is specified, all camera images passed to the same preproces
 must use that layout. Explicit layouts bypass automatic detection and support
 otherwise ambiguous shapes such as `(1, 3, 3, 3)`.
 
+An explicit `image_layout` requires 1 to 4 channels; other channel counts raise
+`ValueError`. Omitting it or setting it to `None` retains legacy automatic detection
+without this channel-count check.
+
 For example, configure resizing for channels-last input:
 
 ```yaml

@@ -29,7 +29,8 @@ class ResizePreprocessor(Preprocessor):
     Args:
         image_resolution: Target (height, width) for images.
         image_layout: Input axis order, ``BCHW`` or ``BHWC``. When specified,
-            all images must use this layout. Defaults to ``None``, which infers
+            all images must use this layout and have 1 to 4 channels.
+            Defaults to ``None``, which infers
             the layout of each image array using the legacy heuristic.
         mode: Resize strategy.
             - ``stretch`` distorts to exact target size without padding.
@@ -90,6 +91,23 @@ class ResizePreprocessor(Preprocessor):
 
         return outputs
 
+    def _validate_channel_count(self, shape: tuple[int, ...]) -> None:
+        """Validate explicit layouts while preserving legacy automatic detection.
+
+        Raises:
+            ValueError: If an explicit layout has a channel count outside 1 to 4.
+        """
+        if self._image_layout is None:
+            return
+        channel_axis = 1 if self._image_layout == ImageLayout.BCHW else -1
+        channels = shape[channel_axis]
+        if channels not in {1, 2, 3, 4}:
+            msg = (
+                f"Expected 1 to 4 channels for image_layout={self._image_layout.value}, "
+                f"but got {channels} channels in shape {shape}; check image_layout"
+            )
+            raise ValueError(msg)
+
     def _resize_with_ar_pad(self, img: np.ndarray) -> np.ndarray:  # noqa: PLR0914
         """Resize an image array to the target resolution.
 
@@ -115,12 +133,15 @@ class ResizePreprocessor(Preprocessor):
                 has an unsupported dtype (not ``uint8`` or floating point),
                 or if the ``pad_value`` is out of range for ``uint8`` inputs,
                 or if the input image has a zero spatial dimension,
-                or if automatic layout detection is ambiguous.
+                or if automatic layout detection is ambiguous,
+                or if an explicit layout has a channel count outside 1 to 4.
         """
         img_dim = 4
         if img.ndim != img_dim:
             msg = f"4D image expected, but got shape {img.shape}"
             raise ValueError(msg)
+
+        self._validate_channel_count(img.shape)
 
         if img.dtype == np.uint8 and self._pad_value > np.iinfo(np.uint8).max:
             msg = f"pad_value {self._pad_value} is out of range for uint8 inputs"

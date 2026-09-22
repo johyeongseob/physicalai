@@ -176,6 +176,55 @@ class TestResizeSmolVLADtypeAndLayout:
         result_hwc = prep_hwc({IMAGES: hwc})
         np.testing.assert_array_equal(result_chw[IMAGES], result_hwc[IMAGES])
 
+    @pytest.mark.parametrize("image_layout", ["BCHW", "BHWC"])
+    @pytest.mark.parametrize("channels", [1, 2, 3, 4])
+    def test_explicit_layout_accepts_supported_channel_counts(self, image_layout: str, channels: int) -> None:
+        color = np.arange(1, channels + 1, dtype=np.float32) / channels
+        chw = np.broadcast_to(color[None, :, None, None], (1, channels, 8, 10)).copy()
+        img = chw if image_layout == "BCHW" else chw.transpose(0, 2, 3, 1)
+        prep = ResizeSmolVLA(image_resolution=(16, 20), image_layout=image_layout)
+
+        result = prep({IMAGES: img})
+
+        expected = np.broadcast_to((color * 2 - 1)[None, None, :, None, None], (1, 1, channels, 16, 20))
+        np.testing.assert_allclose(result[IMAGES], expected, atol=1e-6)
+        np.testing.assert_array_equal(result[IMAGE_MASKS], [[True]])
+
+    @pytest.mark.parametrize("image_layout", ["BCHW", "BHWC"])
+    @pytest.mark.parametrize("channels", [0, 5])
+    def test_explicit_layout_rejects_unsupported_channel_counts(self, image_layout: str, channels: int) -> None:
+        chw = np.zeros((1, channels, 8, 10), dtype=np.float32)
+        img = chw if image_layout == "BCHW" else chw.transpose(0, 2, 3, 1)
+        prep = ResizeSmolVLA(image_resolution=(16, 20), image_layout=image_layout)
+
+        with pytest.raises(ValueError, match=f"Expected 1 to 4 channels for image_layout={image_layout}") as error:
+            prep({IMAGES: img})
+        assert f"got {channels} channels" in str(error.value)
+        assert str(img.shape) in str(error.value)
+
+    @pytest.mark.parametrize("image_layout", ["BCHW", "BHWC"])
+    def test_incorrect_explicit_layout_rejects_spatial_dimension_as_channels(self, image_layout: str) -> None:
+        chw = np.zeros((1, 3, 8, 8), dtype=np.float32)
+        img = chw.transpose(0, 2, 3, 1) if image_layout == "BCHW" else chw
+        prep = ResizeSmolVLA(image_resolution=(16, 16), image_layout=image_layout)
+
+        with pytest.raises(ValueError, match="got 8 channels"):
+            prep({IMAGES: img})
+
+    @pytest.mark.parametrize("explicit_none", [False, True])
+    def test_automatic_layout_preserves_five_channel_input(self, explicit_none: bool) -> None:
+        color = np.arange(1, 6, dtype=np.float32) / 5
+        img = np.broadcast_to(color[None, :, None, None], (1, 5, 8, 10)).copy()
+        if explicit_none:
+            prep = ResizeSmolVLA(image_resolution=(16, 20), image_layout=None)
+        else:
+            prep = ResizeSmolVLA(image_resolution=(16, 20))
+
+        result = prep({IMAGES: img})
+        expected = np.broadcast_to((color * 2 - 1)[None, None, :, None, None], (1, 1, 5, 16, 20))
+        np.testing.assert_allclose(result[IMAGES], expected, atol=1e-6)
+        np.testing.assert_array_equal(result[IMAGE_MASKS], [[True]])
+
     @pytest.mark.parametrize("image_layout", [ImageLayout.BCHW, ImageLayout.BHWC, "BCHW", "BHWC"])
     def test_explicit_layout_preserves_pixels_for_ambiguous_shape(self, image_layout: ImageLayout | str) -> None:
         prep = ResizeSmolVLA(image_resolution=(3, 3), image_layout=image_layout)

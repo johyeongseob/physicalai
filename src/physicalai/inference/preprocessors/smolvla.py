@@ -55,7 +55,8 @@ class ResizeSmolVLA(Preprocessor):
                 single RGB frame when no real camera is present. Values <= 0 keep only
                 the input cameras, without any dummy images.
             image_layout: Input axis order, ``BCHW`` or ``BHWC``. When specified,
-                all cameras must use this layout. Defaults to ``None``, which
+                all cameras must use this layout and have 1 to 4 channels.
+                Defaults to ``None``, which
                 infers the layout of each image array using the legacy heuristic.
 
         Raises:
@@ -106,6 +107,7 @@ class ResizeSmolVLA(Preprocessor):
         Raises:
             ValueError: If input images have unsupported data types, are not 4D,
                 have zero spatial dimensions, automatic layout detection is ambiguous,
+                an explicit layout has a channel count outside 1 to 4,
                 or the camera slots cannot be resolved.
         """
         inputs = dict(inputs)
@@ -127,6 +129,7 @@ class ResizeSmolVLA(Preprocessor):
             if img.ndim != img_dim:
                 msg = f"4D image expected, but got shape {img.shape}"
                 raise ValueError(msg)
+            self._validate_channel_count(img.shape)
             if img.dtype == np.uint8:
                 img_fp32 = img.astype(np.float32) / 255.0
             elif np.issubdtype(img.dtype, np.floating):
@@ -168,6 +171,23 @@ class ResizeSmolVLA(Preprocessor):
         )
 
         return inputs
+
+    def _validate_channel_count(self, shape: tuple[int, ...]) -> None:
+        """Validate explicit layouts while preserving legacy automatic detection.
+
+        Raises:
+            ValueError: If an explicit layout has a channel count outside 1 to 4.
+        """
+        if self._image_layout is None:
+            return
+        channel_axis = 1 if self._image_layout == ImageLayout.BCHW else -1
+        channels = shape[channel_axis]
+        if channels not in {1, 2, 3, 4}:
+            msg = (
+                f"Expected 1 to 4 channels for image_layout={self._image_layout.value}, "
+                f"but got {channels} channels in shape {shape}; check image_layout"
+            )
+            raise ValueError(msg)
 
     @staticmethod
     def _normalize_image_key(key: str) -> str:
@@ -283,6 +303,8 @@ class ResizeSmolVLA(Preprocessor):
             # cv2.resize expects (H, W, C) so transpose from (C, H, W)
             hwc = np.transpose(img[i], (1, 2, 0))
             resized_hwc = cv2.resize(hwc, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
+            if resized_hwc.ndim == 2:  # noqa: PLR2004
+                resized_hwc = resized_hwc[:, :, np.newaxis]
             batch.append(np.transpose(resized_hwc, (2, 0, 1)))
         resized_img = np.stack(batch, axis=0)
 
