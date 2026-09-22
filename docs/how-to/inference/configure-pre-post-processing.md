@@ -42,15 +42,15 @@ Use `type` for registered built-in components. Use `class_path` when you want an
 
 ## Specify the input image layout
 
-`resize` (`ResizePreprocessor`) and `smolvla_resize` (`ResizeSmolVLA`) require
-`image_layout`. Set it to the axis order of the images entering that preprocessor:
+`resize` (`ResizePreprocessor`) and `smolvla_resize` (`ResizeSmolVLA`) accept an
+optional `image_layout`. Set it to the axis order of the images entering that preprocessor:
 
 - `BCHW`: batch, channels, height, width.
 - `BHWC`: batch, height, width, channels.
 
-All camera images passed to the same preprocessor must use the configured layout.
-The layout is not inferred from image dimensions, including ambiguous shapes such
-as `(1, 3, 3, 3)`.
+When `image_layout` is specified, all camera images passed to the same preprocessor
+must use that layout. Explicit layouts bypass automatic detection and support
+otherwise ambiguous shapes such as `(1, 3, 3, 3)`.
 
 For example, configure resizing for channels-last input:
 
@@ -80,9 +80,17 @@ resize = ResizePreprocessor(image_resolution=(224, 224), image_layout="BHWC")
 ```
 
 Existing manifests, configuration files, and Python calls that omit `image_layout`
-must be updated. Choose the layout from the image producer or the preceding
-preprocessor; there is no default or automatic detection. Unbatched `CHW` and
-`HWC` layouts are not supported.
+continue to use the legacy automatic detection. Python `None` or YAML/JSON `null`
+also selects this behavior. Detection runs separately for each image array:
+
+- If both the second and last dimensions are in `{1, 2, 3, 4}`, detection raises
+  `ValueError` because the layout is ambiguous.
+- If only the last dimension is in that set, the array is treated as `BHWC`.
+- Otherwise, the array is treated as `BCHW`.
+
+These rules preserve the existing heuristic; they do not validate the supported
+channel count. Prefer an explicit layout based on the image producer or preceding
+preprocessor to avoid guessing. Unbatched `CHW` and `HWC` layouts are not supported.
 
 The setting describes the input only. `ResizePreprocessor` still returns `BCHW`
 images, and `ResizeSmolVLA` still stacks images as

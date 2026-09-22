@@ -148,9 +148,37 @@ class TestResizePreprocessor:
         with pytest.raises(ValueError):
             ResizePreprocessor(image_resolution=(64, 64), image_layout=image_layout)
 
-    def test_layout_is_required(self) -> None:
-        with pytest.raises(TypeError, match="image_layout"):
-            ResizePreprocessor(image_resolution=(64, 64))  # pyrefly: ignore [missing-argument]
+    @pytest.mark.parametrize("explicit_none", [False, True])
+    @pytest.mark.parametrize("image_layout", [ImageLayout.BCHW, ImageLayout.BHWC])
+    @pytest.mark.parametrize("mode", [ResizeMode.STRETCH, ResizeMode.LETTERBOX])
+    def test_automatic_layout_matches_explicit(
+        self, explicit_none: bool, image_layout: ImageLayout, mode: ResizeMode
+    ) -> None:
+        chw = np.arange(3 * 7 * 8, dtype=np.float32).reshape(1, 3, 7, 8) / 167
+        img = chw if image_layout == ImageLayout.BCHW else chw.transpose(0, 2, 3, 1)
+        if explicit_none:
+            automatic = ResizePreprocessor(image_resolution=(12, 16), mode=mode, image_layout=None)
+        else:
+            automatic = ResizePreprocessor(image_resolution=(12, 16), mode=mode)
+        explicit = ResizePreprocessor(image_resolution=(12, 16), mode=mode, image_layout=image_layout)
+
+        np.testing.assert_array_equal(automatic({IMAGES: img})[IMAGES], explicit({IMAGES: img})[IMAGES])
+
+    @pytest.mark.parametrize("explicit_none", [False, True])
+    def test_automatic_layout_rejects_ambiguous_shape(self, explicit_none: bool) -> None:
+        if explicit_none:
+            prep = ResizePreprocessor(image_resolution=(6, 6), image_layout=None)
+        else:
+            prep = ResizePreprocessor(image_resolution=(6, 6))
+        with pytest.raises(ValueError, match="ambiguous layout"):
+            prep({IMAGES: np.zeros((1, 3, 3, 3), dtype=np.float32)})
+
+    def test_automatic_layout_is_inferred_for_each_call(self) -> None:
+        prep = ResizePreprocessor(image_resolution=(7, 8))
+        chw = np.arange(3 * 7 * 8, dtype=np.float32).reshape(1, 3, 7, 8) / 167
+
+        for img in (chw, chw.transpose(0, 2, 3, 1), chw):
+            np.testing.assert_array_equal(prep({IMAGES: img})[IMAGES], chw)
 
     @pytest.mark.parametrize("mode", [ResizeMode.STRETCH, ResizeMode.LETTERBOX])
     @pytest.mark.parametrize("presentation", ["single", "nested", "flat"])

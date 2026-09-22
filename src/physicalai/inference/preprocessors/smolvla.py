@@ -11,7 +11,7 @@ import numpy as np
 from physicalai.inference.constants import IMAGE_MASKS, IMAGES
 
 from .base import Preprocessor
-from .image_layout import ImageLayout
+from .image_layout import ImageLayout, infer_image_layout
 
 # Dummy camera slots assume RGB, matching the SigLIP vision tower.
 _RGB_CHANNELS = 3
@@ -37,7 +37,7 @@ class ResizeSmolVLA(Preprocessor):
         image_key_reorder_map: dict[str, int] | None = None,
         num_cameras: int = 0,
         *,
-        image_layout: ImageLayout | str,
+        image_layout: ImageLayout | str | None = None,
     ) -> None:
         """Initialize the SmolVLA numpy-based preprocessor.
 
@@ -54,8 +54,9 @@ class ResizeSmolVLA(Preprocessor):
                 shaped after the real cameras, or after ``image_resolution`` with a
                 single RGB frame when no real camera is present. Values <= 0 keep only
                 the input cameras, without any dummy images.
-            image_layout: Input axis order, ``BCHW`` or ``BHWC``. All cameras
-                passed to this preprocessor must use this layout.
+            image_layout: Input axis order, ``BCHW`` or ``BHWC``. When specified,
+                all cameras must use this layout. Defaults to ``None``, which
+                infers the layout of each image array using the legacy heuristic.
 
         Raises:
             ValueError: If ``image_key_reorder_map`` contains negative or duplicate slot
@@ -63,7 +64,7 @@ class ResizeSmolVLA(Preprocessor):
         """
         super().__init__()
         self.image_resolution = image_resolution
-        self._image_layout = ImageLayout(image_layout)
+        self._image_layout = ImageLayout(image_layout) if image_layout is not None else None
         self.image_key_reorder_map = {
             self._normalize_image_key(key): order for key, order in (image_key_reorder_map or {}).items()
         }
@@ -88,7 +89,8 @@ class ResizeSmolVLA(Preprocessor):
         - (B, C, H, W) or (B, H, W, C) with float32 values in [0, 1]
         - (B, C, H, W) or (B, H, W, C) with uint8 values in [0, 255]
 
-        Input axis order must match the configured ``image_layout``.
+        Input axis order must match the configured ``image_layout``. When it is
+        ``None``, the layout is inferred separately for each image array.
 
         Args:
             inputs: Dictionary containing image arrays under the ``images`` key (single
@@ -103,7 +105,8 @@ class ResizeSmolVLA(Preprocessor):
 
         Raises:
             ValueError: If input images have unsupported data types, are not 4D,
-                have zero spatial dimensions, or the camera slots cannot be resolved.
+                have zero spatial dimensions, automatic layout detection is ambiguous,
+                or the camera slots cannot be resolved.
         """
         inputs = dict(inputs)
 
@@ -122,7 +125,7 @@ class ResizeSmolVLA(Preprocessor):
             img = images_by_key[key]
             img_dim = 4
             if img.ndim != img_dim:
-                msg = f"4D image in {self._image_layout} layout expected, but got shape {img.shape}"
+                msg = f"4D image expected, but got shape {img.shape}"
                 raise ValueError(msg)
             if img.dtype == np.uint8:
                 img_fp32 = img.astype(np.float32) / 255.0
@@ -133,7 +136,7 @@ class ResizeSmolVLA(Preprocessor):
                 msg = f"Unsupported image dtype: {img.dtype}"
                 raise ValueError(msg)
 
-            if self._image_layout == ImageLayout.BHWC:
+            if (self._image_layout or infer_image_layout(img_fp32.shape)) == ImageLayout.BHWC:
                 img_fp32 = np.transpose(img_fp32, (0, 3, 1, 2))  # (B, H, W, C) to (B, C, H, W)
 
             resized_img = self._resize_with_pad(img_fp32, target_width, target_height, pad_value=0)

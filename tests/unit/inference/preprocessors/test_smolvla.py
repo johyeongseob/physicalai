@@ -190,9 +190,39 @@ class TestResizeSmolVLADtypeAndLayout:
         with pytest.raises(ValueError):
             ResizeSmolVLA(image_layout=image_layout)
 
-    def test_layout_is_required(self) -> None:
-        with pytest.raises(TypeError, match="image_layout"):
-            ResizeSmolVLA()  # pyrefly: ignore [missing-argument]
+    @pytest.mark.parametrize("explicit_none", [False, True])
+    @pytest.mark.parametrize("image_layout", [ImageLayout.BCHW, ImageLayout.BHWC])
+    def test_automatic_layout_matches_explicit(self, explicit_none: bool, image_layout: ImageLayout) -> None:
+        chw = np.arange(3 * 7 * 8, dtype=np.float32).reshape(1, 3, 7, 8) / 167
+        img = chw if image_layout == ImageLayout.BCHW else chw.transpose(0, 2, 3, 1)
+        if explicit_none:
+            automatic = ResizeSmolVLA(image_resolution=(12, 16), num_cameras=2, image_layout=None)
+        else:
+            automatic = ResizeSmolVLA(image_resolution=(12, 16), num_cameras=2)
+        explicit = ResizeSmolVLA(image_resolution=(12, 16), num_cameras=2, image_layout=image_layout)
+
+        actual = automatic({IMAGES: img})
+        expected = explicit({IMAGES: img})
+        np.testing.assert_array_equal(actual[IMAGES], expected[IMAGES])
+        np.testing.assert_array_equal(actual[IMAGE_MASKS], expected[IMAGE_MASKS])
+
+    @pytest.mark.parametrize("explicit_none", [False, True])
+    def test_automatic_layout_rejects_ambiguous_shape(self, explicit_none: bool) -> None:
+        if explicit_none:
+            prep = ResizeSmolVLA(image_resolution=(6, 6), image_layout=None)
+        else:
+            prep = ResizeSmolVLA(image_resolution=(6, 6))
+        with pytest.raises(ValueError, match="ambiguous layout"):
+            prep({IMAGES: np.zeros((1, 3, 3, 3), dtype=np.float32)})
+
+    def test_automatic_layout_is_inferred_for_each_call(self) -> None:
+        prep = ResizeSmolVLA(image_resolution=(7, 8))
+        chw = np.arange(3 * 7 * 8, dtype=np.float32).reshape(1, 3, 7, 8) / 167
+
+        for img in (chw, chw.transpose(0, 2, 3, 1), chw):
+            result = prep({IMAGES: img})
+            np.testing.assert_array_equal(result[IMAGES], (chw * 2 - 1)[None])
+            np.testing.assert_array_equal(result[IMAGE_MASKS], [[True]])
 
     @pytest.mark.parametrize("image_layout", ["BCHW", "BHWC"])
     def test_invalid_ndim_raises_before_transpose(self, image_layout: str) -> None:
